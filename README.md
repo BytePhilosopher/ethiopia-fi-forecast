@@ -37,7 +37,12 @@ python src/build_processed_dataset.py
 # Load & summarise
 python -m src.load_data
 
-# Run data-integrity tests
+# Regenerate EDA figures, then rebuild + execute the EDA notebook
+python src/eda.py
+python src/build_notebook.py
+jupyter nbconvert --to notebook --execute --inplace notebooks/01_eda.ipynb
+
+# Run tests (data integrity + EDA smoke)
 pytest -q
 ```
 
@@ -48,3 +53,11 @@ defect was corrected, and 30 sourced records were added (20 observations, 3 even
 7 impact_links), yielding the 87-record processed dataset. Every change — source URL,
 exact quote, confidence and rationale — is documented in
 [`data_enrichment_log.md`](data_enrichment_log.md).
+
+## Task 2 — exploratory data analysis
+
+[`notebooks/01_eda.ipynb`](notebooks/01_eda.ipynb) explores composition, temporal coverage,
+data quality, the access-ownership plateau, the registered-vs-active usage paradox, the
+gender gap, and event/impact relationships (figures in [`reports/figures/`](reports/figures/)).
+Findings are written up in [`reports/eda_key_insights.md`](reports/eda_key_insights.md)
+(6 insights + hypotheses) and [`reports/data_quality_assessment.md`](reports/data_quality_assessment.md).
