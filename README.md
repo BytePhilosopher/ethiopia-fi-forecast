@@ -61,3 +61,14 @@ data quality, the access-ownership plateau, the registered-vs-active usage parad
 gender gap, and event/impact relationships (figures in [`reports/figures/`](reports/figures/)).
 Findings are written up in [`reports/eda_key_insights.md`](reports/eda_key_insights.md)
 (6 insights + hypotheses) and [`reports/data_quality_assessment.md`](reports/data_quality_assessment.md).
+An interim report combining Tasks 1–2 is at [`reports/interim_report.md`](reports/interim_report.md).
+
+## Task 3 — event impact modeling
+
+[`notebooks/02_impact_model.ipynb`](notebooks/02_impact_model.ipynb) (engine
+[`src/impact_model.py`](src/impact_model.py)) turns `impact_link` records into a time-based model
+— a half-life effect ramp `g(Δt)=1−0.5^(Δt/lag)`, additive (pp) vs multiplicative (%) combination
+by indicator unit — builds the [event→indicator association matrix](reports/figures/13_association_matrix.png),
+and validates it: ACC_MM_ACCOUNT is well-calibrated (8.9% vs 9.45% observed) while ACC_OWNERSHIP
+over-predicts (62.7% vs 49%) and needs attenuation α≈0.18. Methodology, sources, validation and
+uncertainties: [`reports/impact_model_methodology.md`](reports/impact_model_methodology.md).
