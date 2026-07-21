@@ -24,5 +24,10 @@ data = load_all(processed=True)   # dict: unified, observations, events, targets
   `python src/build_impact_notebook.py && jupyter nbconvert --to notebook --execute --inplace notebooks/02_impact_model.ipynb`.
   Methodology: [`reports/impact_model_methodology.md`](../reports/impact_model_methodology.md).
 
-Planned:
-- `03_access_usage_forecast.ipynb` — ACCESS & USAGE forecasts with event intervention terms.
+- `03_forecast.ipynb` — **(Task 4, done)** forecasts account ownership and digital-payment usage
+  for 2025–2027 via three methods (linear trend + 95% PI, event-augmented scenarios, and an
+  ownership × payment-propensity decomposition for the single-point digital-payment target).
+  Engine: `src/forecast.py`; regenerate with
+  `python src/build_forecast_notebook.py && jupyter nbconvert --to notebook --execute --inplace notebooks/03_forecast.ipynb`.
+  Interpretation: [`reports/forecast_interpretation.md`](../reports/forecast_interpretation.md);
+  table: `data/processed/forecasts_2025_2027.csv`.

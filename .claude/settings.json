@@ -4,7 +4,10 @@
       "Bash(python3 -m src.impact_model)",
       "Bash(python3 -c \"from src.impact_model import save_figures; save_figures\\(\\)\")",
       "Bash(python3 src/build_impact_notebook.py)",
-      "Bash(awk '{print $NF}')"
+      "Bash(awk '{print $NF}')",
+      "Bash(python3 -m src.forecast)",
+      "Bash(python3 -c \"from src.forecast import save_figures; save_figures\\(\\)\")",
+      "Bash(python3 src/build_forecast_notebook.py)"
     ]
   }
 }

@@ -72,3 +72,13 @@ by indicator unit — builds the [event→indicator association matrix](reports/
 and validates it: ACC_MM_ACCOUNT is well-calibrated (8.9% vs 9.45% observed) while ACC_OWNERSHIP
 over-predicts (62.7% vs 49%) and needs attenuation α≈0.18. Methodology, sources, validation and
 uncertainties: [`reports/impact_model_methodology.md`](reports/impact_model_methodology.md).
+
+## Task 4 — forecasting Access & Usage (2025–2027)
+
+[`notebooks/03_forecast.ipynb`](notebooks/03_forecast.ipynb) (engine [`src/forecast.py`](src/forecast.py))
+forecasts account ownership and digital-payment usage with linear-trend + 95% PI, an
+event-augmented scenario model (pessimistic/base/optimistic), and an ownership × payment-propensity
+decomposition for the single-point digital-payment target. Base case: ownership **~54% by 2027**
+(band 51–58%, short of the NFIS-II 70% target), digital payments **~27%** (band 23–32%). Table:
+[`data/processed/forecasts_2025_2027.csv`](data/processed/forecasts_2025_2027.csv); interpretation:
+[`reports/forecast_interpretation.md`](reports/forecast_interpretation.md).
