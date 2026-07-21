@@ -17,6 +17,12 @@ data = load_all(processed=True)   # dict: unified, observations, events, targets
   Written findings: [`reports/eda_key_insights.md`](../reports/eda_key_insights.md) and
   [`reports/data_quality_assessment.md`](../reports/data_quality_assessment.md).
 
+- `02_impact_model.ipynb` — **(Task 3, done)** turns `impact_link` records into a time-based
+  model (half-life ramp `g(Δt)=1−0.5^(Δt/lag)`), builds the event→indicator association matrix,
+  and validates predictions vs observed history (ACC_MM_ACCOUNT well-calibrated; ACC_OWNERSHIP
+  over-predicts → α≈0.18). Engine: `src/impact_model.py`; regenerate with
+  `python src/build_impact_notebook.py && jupyter nbconvert --to notebook --execute --inplace notebooks/02_impact_model.ipynb`.
+  Methodology: [`reports/impact_model_methodology.md`](../reports/impact_model_methodology.md).
+
 Planned:
-- `02_access_model.ipynb` — ACCESS forecast with event intervention terms.
-- `03_usage_model.ipynb` — USAGE forecast (Telebirr adoption curve, P2P volumes).
+- `03_access_usage_forecast.ipynb` — ACCESS & USAGE forecasts with event intervention terms.
