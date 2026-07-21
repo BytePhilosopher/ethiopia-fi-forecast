@@ -82,3 +82,28 @@ decomposition for the single-point digital-payment target. Base case: ownership 
 (band 51–58%, short of the NFIS-II 70% target), digital payments **~27%** (band 23–32%). Table:
 [`data/processed/forecasts_2025_2027.csv`](data/processed/forecasts_2025_2027.csv); interpretation:
 [`reports/forecast_interpretation.md`](reports/forecast_interpretation.md).
+
+## Task 5 — interactive dashboard
+
+[`dashboard/app.py`](dashboard/app.py) is a Streamlit app (interactive Plotly charts, same
+colorblind-safe palette) with four pages:
+
+- **Overview** — metric cards, the P2P/ATM crossover gauge, and the growth-deceleration chart.
+- **Trends** — multi-indicator time series with indicator picker + year-range slider, and a
+  channel-comparison view (P2P vs ATM, Telebirr vs M-Pesa), with a data-download button.
+- **Forecasts** — ownership & digital-payment forecasts with confidence intervals, a model
+  selector (event-augmented scenarios / linear trend+PI / both), projected milestones, the
+  event→indicator association heatmap, and a forecast-table download.
+- **Inclusion Projections** — projection with a scenario selector, a progress-toward-60%-target
+  gauge, and expandable answers to the consortium's key questions.
+
+### Run the dashboard locally
+
+```bash
+pip install -r requirements.txt          # includes streamlit + plotly
+streamlit run dashboard/app.py           # opens http://localhost:8501
+```
+
+The app reuses the analysis engines in `src/` (no separate data prep needed). Pure data helpers
+live in [`dashboard/data_access.py`](dashboard/data_access.py); the app is smoke-tested via
+Streamlit's `AppTest` in [`tests/test_dashboard.py`](tests/test_dashboard.py).

@@ -7,7 +7,10 @@
       "Bash(awk '{print $NF}')",
       "Bash(python3 -m src.forecast)",
       "Bash(python3 -c \"from src.forecast import save_figures; save_figures\\(\\)\")",
-      "Bash(python3 src/build_forecast_notebook.py)"
+      "Bash(python3 src/build_forecast_notebook.py)",
+      "Bash(python3 -c \"import ast; ast.parse\\(open\\('dashboard/app.py'\\).read\\(\\)\\); print\\('app.py syntax OK'\\)\")",
+      "Bash(python3 -m pytest tests/test_dashboard.py -q)",
+      "Bash(grep -vE \"use_container_width|width=|will be removed|^For |replace|^$\")"
     ]
   }
 }
