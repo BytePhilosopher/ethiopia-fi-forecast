@@ -1,10 +1,19 @@
+# data & IO
 pandas>=2.0
 numpy>=1.24
-openpyxl>=3.1
+openpyxl>=3.1          # reads the starter .xlsx workbook
+
+# modelling
+scipy>=1.10            # t-distribution for the forecast prediction interval
+scikit-learn>=1.3      # RandomForest surrogate behind the SHAP explanations
+shap>=0.44             # model explainability
+
+# figures, notebooks & dashboard
 matplotlib>=3.7
-scipy>=1.10
-scikit-learn>=1.3
-statsmodels>=0.14
+pillow>=10.0           # stitches the dashboard demo GIF in scripts/capture_dashboard.py
+nbformat>=5.9          # used by the src/build_*_notebook.py generators
 streamlit>=1.30
 plotly>=5.18
+
+# tests
 pytest>=7.4

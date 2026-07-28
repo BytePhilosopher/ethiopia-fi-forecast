@@ -12,13 +12,14 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 from src.load_data import load_all  # noqa: E402
+from src.utils import PALETTE, observation_series  # noqa: E402
+from src.config import FORECAST_CFG  # noqa: E402
 
-# Okabe-Ito colorblind-safe palette (shared with the notebooks/figures)
-OI = {"blue": "#0072B2", "orange": "#E69F00", "green": "#009E73", "vermillion": "#D55E00",
-      "purple": "#CC79A7", "sky": "#56B4E9", "black": "#111111", "yellow": "#F0E442"}
-INK, MUTED, GRID = "#1a1a1a", "#6b6b6b", "#e6e6e6"
+# Okabe-Ito colorblind-safe palette — single source of truth in src/utils.
+OI = PALETTE.as_dict()
+INK, MUTED, GRID = PALETTE.ink, PALETTE.muted, PALETTE.grid
 
-CONSORTIUM_TARGET = 60.0  # % account ownership (consortium inclusion target)
+CONSORTIUM_TARGET = FORECAST_CFG.consortium_target  # % account-ownership inclusion target
 
 INDICATOR_LABELS = {
     "ACC_OWNERSHIP": "Account ownership (%)",
@@ -45,11 +46,11 @@ def load_observations() -> pd.DataFrame:
 
 
 def get_series(obs: pd.DataFrame, code: str, gender: str = "all") -> pd.DataFrame:
-    s = obs[(obs.indicator_code == code) & (obs.gender == gender)]
-    return s.sort_values("date")[["date", "year", "value", "unit", "source_name", "confidence"]]
+    s = observation_series(obs, code, gender)
+    return s[["date", "year", "value", "unit", "source_name", "confidence"]]
 
 
-def _latest(obs, code, gender="all"):
+def _latest(obs: pd.DataFrame, code: str, gender: str = "all") -> pd.Series | None:
     s = get_series(obs, code, gender)
     return None if s.empty else s.iloc[-1]
 
@@ -58,7 +59,8 @@ def key_metrics(obs: pd.DataFrame) -> list[dict]:
     """Summary cards: current value + delta vs previous observation where available."""
     cards = []
 
-    def card(code, label, fmt="{:.1f}%", scale=1.0, delta_suffix="pp"):
+    def card(code: str, label: str, fmt: str = "{:.1f}%", scale: float = 1.0,
+             delta_suffix: str = "pp") -> None:
         s = get_series(obs, code)
         if s.empty:
             return
@@ -82,7 +84,7 @@ def key_metrics(obs: pd.DataFrame) -> list[dict]:
     return cards
 
 
-def crossover_ratio(obs: pd.DataFrame):
+def crossover_ratio(obs: pd.DataFrame) -> tuple[float | None, int | None]:
     """P2P/ATM transaction-count crossover ratio (>1 => digital P2P exceeds ATM)."""
     r = _latest(obs, "USG_CROSSOVER")
     if r is not None:

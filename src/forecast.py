@@ -17,50 +17,52 @@ Three complementary methods, reflecting the sparse, decelerating data:
 Uncertainty is expressed two ways: the linear 95% PI (statistical) and the optimistic-
 pessimistic scenario band (structural / assumption uncertainty).
 """
+from __future__ import annotations
+
+from collections.abc import Sequence
 from pathlib import Path
+from typing import TYPE_CHECKING
+
 import numpy as np
 import pandas as pd
 
+if TYPE_CHECKING:                      # import cost avoided at runtime
+    from matplotlib.axes import Axes
+
 from src.load_data import load_all
 from src import impact_model as im
+from src.config import FORECAST_CFG
+from src.utils import observation_series, years_between
 
 ROOT = Path(__file__).resolve().parents[1]
 FIG_DIR = ROOT / "reports" / "figures"
 PROC_DIR = ROOT / "data" / "processed"
 
-FORECAST_YEARS = [2025, 2026, 2027]
-_ANCHOR_DATE = pd.Timestamp("2024-11-29")   # Findex 2024 fieldwork
-OWN_ANCHOR = 49.0
-DP_ANCHOR = 21.0
-DP_PROPENSITY_0 = DP_ANCHOR / OWN_ANCHOR     # 0.429 of account-holders pay digitally (2024)
-
-# ---- scenario assumptions (documented) --------------------------------------
-# organic drift = non-event pp/yr; alpha = realized fraction of imported ownership impacts
-OWN_SCENARIOS = {
-    "pessimistic": {"drift": 0.5, "alpha": 0.10},   # near-stall continues
-    "base":        {"drift": 1.2, "alpha": 0.18},   # ~recent rate; α = Task-3 validated value
-    "optimistic":  {"drift": 2.0, "alpha": 0.30},   # device adoption + events accelerate
-}
-# digital-payment propensity trajectory (share of account-holders paying digitally)
-DP_PROPENSITY = {
-    "pessimistic": {2025: 0.435, 2026: 0.440, 2027: 0.445},
-    "base":        {2025: 0.450, 2026: 0.470, 2027: 0.490},
-    "optimistic":  {2025: 0.470, 2026: 0.510, 2027: 0.550},
-}
+# Constants and scenario assumptions come from the typed config (src/config.py);
+# re-exported here (in the historical dict shape) for callers/tests.
+FORECAST_YEARS: list[int] = list(FORECAST_CFG.forecast_years)
+_ANCHOR_DATE: pd.Timestamp = FORECAST_CFG.anchor_date          # Findex 2024 fieldwork
+OWN_ANCHOR: float = FORECAST_CFG.ownership_anchor
+DP_ANCHOR: float = FORECAST_CFG.digital_pay_anchor
+DP_PROPENSITY_0: float = FORECAST_CFG.base_propensity_2024     # 0.429 pay digitally (2024)
+OWN_SCENARIOS: dict[str, dict[str, float]] = {
+    name: {"drift": s.organic_drift_pp_per_year, "alpha": s.event_attenuation}
+    for name, s in FORECAST_CFG.ownership_scenarios.items()}
+DP_PROPENSITY: dict[str, dict[int, float]] = FORECAST_CFG.digital_pay_propensity
 
 
 # ----------------------------------------------------------------- data helpers
-def ownership_series():
-    d = load_all(processed=True)
-    o = d["observations"]
-    s = o[(o.indicator_code == "ACC_OWNERSHIP") & (o.gender == "all")].copy()
-    s["year"] = pd.to_datetime(s["observation_date"]).dt.year
-    s["value"] = pd.to_numeric(s["value_numeric"], errors="coerce")
-    return s.sort_values("year")[["year", "value"]].reset_index(drop=True)
+def ownership_series() -> pd.DataFrame:
+    """Account-ownership Findex history as a tidy (year, value) frame."""
+    obs = load_all(processed=True)["observations"]
+    s = observation_series(obs, "ACC_OWNERSHIP")
+    return s[["year", "value"]].reset_index(drop=True)
 
 
 # ------------------------------------------------- method 1: linear trend + PI
-def linear_trend(series, years=FORECAST_YEARS, conf=0.95):
+def linear_trend(series: pd.DataFrame, years: list[int] = FORECAST_YEARS,
+                 conf: float = FORECAST_CFG.prediction_interval
+                 ) -> tuple[pd.DataFrame, dict[str, float]]:
     """OLS linear fit with a two-sided prediction interval (t, n-2 df)."""
     from scipy import stats
     x = series["year"].to_numpy(float)
@@ -82,7 +84,7 @@ def linear_trend(series, years=FORECAST_YEARS, conf=0.95):
 
 
 # ---------------------------------------- method 2: event-augmented scenarios
-def ownership_scenarios(years=FORECAST_YEARS):
+def ownership_scenarios(years: list[int] = FORECAST_YEARS) -> pd.DataFrame:
     """anchor + organic drift + attenuated event increments (per scenario)."""
     il = im.get_impact_table()
     dates = [pd.Timestamp(f"{y}-12-31") for y in years]
@@ -92,14 +94,14 @@ def ownership_scenarios(years=FORECAST_YEARS):
                                    il=il, attenuation=p["alpha"])
         vals = []
         for yr, d in zip(years, dates):
-            organic = p["drift"] * ((d - _ANCHOR_DATE).days / 365.25)
+            organic = p["drift"] * years_between(d, _ANCHOR_DATE)
             vals.append(float(ev.loc[d] + organic))
         out[name] = pd.Series(vals, index=years)
     return pd.DataFrame(out)
 
 
 # --------------------------------- method 3: digital payments = ownership × propensity
-def digital_pay_scenarios(years=FORECAST_YEARS):
+def digital_pay_scenarios(years: list[int] = FORECAST_YEARS) -> pd.DataFrame:
     own = ownership_scenarios(years)
     out = {}
     for name in OWN_SCENARIOS:
@@ -109,7 +111,7 @@ def digital_pay_scenarios(years=FORECAST_YEARS):
 
 
 # ----------------------------------------------------------------- combined table
-def forecast_table():
+def forecast_table() -> pd.DataFrame:
     own = ownership_scenarios()
     dp = digital_pay_scenarios()
     lin, _ = linear_trend(ownership_series())
@@ -131,7 +133,7 @@ def forecast_table():
     return pd.DataFrame(rows)
 
 
-def save_table():
+def save_table() -> pd.DataFrame:
     PROC_DIR.mkdir(parents=True, exist_ok=True)
     t = forecast_table()
     out = PROC_DIR / "forecasts_2025_2027.csv"
@@ -141,13 +143,13 @@ def save_table():
 
 
 # ----------------------------------------------------------------------- figures
-def _forecast_axis(ax, hist_years, hist_vals, scen_df, lin_df, anchor, title, ylabel,
-                   target_line=None, target_label=None):
+def _forecast_axis(ax: "Axes", hist_years: Sequence[float], hist_vals: Sequence[float],
+                   scen_df: pd.DataFrame, lin_df: pd.DataFrame | None, anchor: float,
+                   title: str, ylabel: str, target_line: float | None = None,
+                   target_label: str | None = None) -> None:
     from src import eda
     ax.plot(hist_years, hist_vals, "-o", color=eda.INK, lw=2.4, markersize=8,
             zorder=6, label="observed (Findex)")
-    for _, r in zip(hist_years, hist_vals):
-        pass
     # linear trend + PI band (ownership only)
     if lin_df is not None:
         yrs = lin_df["year"]
@@ -171,7 +173,7 @@ def _forecast_axis(ax, hist_years, hist_vals, scen_df, lin_df, anchor, title, yl
     ax.grid(axis="x", visible=False)
 
 
-def fig_ownership_forecast():
+def fig_ownership_forecast() -> "plt.Figure":
     from src import eda
     import matplotlib.pyplot as plt
     eda._style()
@@ -188,7 +190,7 @@ def fig_ownership_forecast():
     return fig
 
 
-def fig_digital_pay_forecast():
+def fig_digital_pay_forecast() -> "plt.Figure":
     from src import eda
     import matplotlib.pyplot as plt
     eda._style()
@@ -206,7 +208,7 @@ def fig_digital_pay_forecast():
     return fig
 
 
-def save_figures():
+def save_figures() -> None:
     import matplotlib.pyplot as plt
     FIG_DIR.mkdir(parents=True, exist_ok=True)
     for name, fig in {"15_ownership_forecast": fig_ownership_forecast(),
@@ -223,3 +225,5 @@ if __name__ == "__main__":
     lin, params = linear_trend(ownership_series())
     print("Linear trend slope: %.2f pp/yr" % params["slope"])
     print(lin.round(1).to_string(index=False))
+    print()
+    save_figures()
