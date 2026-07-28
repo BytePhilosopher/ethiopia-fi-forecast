@@ -10,7 +10,14 @@
       "Bash(python3 src/build_forecast_notebook.py)",
       "Bash(python3 -c \"import ast; ast.parse\\(open\\('dashboard/app.py'\\).read\\(\\)\\); print\\('app.py syntax OK'\\)\")",
       "Bash(python3 -m pytest tests/test_dashboard.py -q)",
-      "Bash(grep -vE \"use_container_width|width=|will be removed|^For |replace|^$\")"
+      "Bash(grep -vE \"use_container_width|width=|will be removed|^For |replace|^$\")",
+      "Bash(timeout 300 playwright install chromium)",
+      "Bash(python3 -m playwright install chromium)",
+      "Bash(python3 -c 'from playwright.sync_api import sync_playwright *)",
+      "Bash(python3 -m playwright install chromium-headless-shell)",
+      "Bash(echo \"exit $?\")",
+      "Bash(python3 scripts/capture_dashboard.py)",
+      "Bash(grep -vE \"use_container_width|width=|will be removed|^For |replace|Watchdog|xcode|pip install|^\\\\s*$\")"
     ]
   }
 }

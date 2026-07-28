@@ -2,54 +2,66 @@
 
 Run:  streamlit run dashboard/app.py
 
-Pages: Overview · Trends · Forecasts · Inclusion Projections.
+Pages: Overview · Trends · Forecasts · Inclusion Projections · Explainability.
 Reuses the analysis engines in src/ (load_data, impact_model, forecast) and the
 dashboard/data_access.py helpers. Charts use Plotly (interactive) with the same
 Okabe-Ito colorblind-safe palette as the notebooks.
 """
+from __future__ import annotations
+
+from collections.abc import Callable
 from pathlib import Path
+from typing import Final
 import sys
 
 import pandas as pd
 import plotly.graph_objects as go
 import streamlit as st
 
-ROOT = Path(__file__).resolve().parents[1]
+ROOT: Final[Path] = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 from dashboard import data_access as da          # noqa: E402
 from src import forecast as fc                    # noqa: E402
 from src import impact_model as im                # noqa: E402
+from src import explain as ex                     # noqa: E402
 
 st.set_page_config(page_title="Ethiopia Financial Inclusion", page_icon="📊", layout="wide")
-OI = da.OI
+OI: Final[dict[str, str]] = da.OI
 
 
 # --------------------------------------------------------------------- data (cached)
 @st.cache_data
-def _obs():
+def _obs() -> pd.DataFrame:
     return da.load_observations()
 
 
 @st.cache_data
-def _forecast_table():
+def _forecast_table() -> pd.DataFrame:
     return fc.forecast_table()
 
 
 @st.cache_data
-def _unified():
+def _unified() -> pd.DataFrame:
     from src.load_data import load_all
     return load_all(processed=True)["unified"]
 
 
 @st.cache_data
-def _assoc_matrix():
+def _assoc_matrix() -> tuple[pd.DataFrame, pd.DataFrame]:
     num, ordv = im.build_association_matrix()
     return num, ordv
 
 
-def _style(fig, height=430, ytitle="", xtitle=""):
+@st.cache_data
+def _shap_importance() -> pd.DataFrame:
+    """Mean |SHAP| per feature from the surrogate model (global importance)."""
+    return ex.shap_importance()
+
+
+def _style(fig: go.Figure, height: int = 430, ytitle: str = "",
+           xtitle: str = "") -> go.Figure:
     fig.update_layout(
         template="plotly_white", height=height, margin=dict(l=10, r=10, t=50, b=10),
         legend=dict(orientation="h", yanchor="bottom", y=1.02, x=0),
@@ -60,7 +72,7 @@ def _style(fig, height=430, ytitle="", xtitle=""):
 
 
 # =============================================================== OVERVIEW
-def page_overview(obs):
+def page_overview(obs: pd.DataFrame) -> None:
     st.header("Overview")
     st.caption("Current state of financial inclusion in Ethiopia — headline indicators, the "
                "P2P/ATM crossover, and how account-ownership growth has decelerated.")
@@ -108,7 +120,7 @@ def page_overview(obs):
 
 
 # =============================================================== TRENDS
-def page_trends(obs):
+def page_trends(obs: pd.DataFrame) -> None:
     st.header("Trends")
     st.caption("Explore indicator time series. Pick indicators, set a year range, and compare "
                "channels.")
@@ -165,7 +177,7 @@ def page_trends(obs):
 
 
 # =============================================================== FORECASTS
-def page_forecasts(obs):
+def page_forecasts(obs: pd.DataFrame) -> None:
     st.header("Forecasts (2025–2027)")
     st.caption("Account ownership and digital-payment usage projections with confidence intervals "
                "and scenarios. Choose which model to display.")
@@ -244,7 +256,7 @@ def page_forecasts(obs):
 
 
 # =============================================================== INCLUSION PROJECTIONS
-def page_projections(obs):
+def page_projections(obs: pd.DataFrame) -> None:
     st.header("Inclusion Projections")
     st.caption("Financial-inclusion rate (account ownership) projections and progress toward the "
                "consortium's 60% target.")
@@ -312,19 +324,90 @@ def page_projections(obs):
             "The highest-leverage investment is closing the phone/smartphone gap, especially for women.")
 
 
+# =============================================================== EXPLAINABILITY
+def page_explain(obs: pd.DataFrame) -> None:
+    st.header("Model Explainability")
+    st.caption("Why the model predicts what it does — an exact additive attribution of the "
+               "forecast, and a SHAP analysis of what makes an event impactful.")
+
+    st.subheader("Why this prediction? — additive attribution")
+    scenario = st.radio("Scenario", ["base", "optimistic", "pessimistic"], horizontal=True)
+    contrib = ex.ownership_contributions(scenario)
+    total = float(contrib["forecast_total"].iloc[0])
+    measures = ["absolute"] + ["relative"] * (len(contrib) - 1) + ["total"]
+    fig = go.Figure(go.Waterfall(
+        orientation="v", measure=measures,
+        x=list(contrib["component"]) + ["Forecast total"],
+        y=list(contrib["pp"]) + [0],
+        text=[f"{v:+.1f}" for v in contrib["pp"]] + [f"{total:.1f}"],
+        textposition="outside",
+        connector={"line": {"color": da.GRID}},
+        increasing={"marker": {"color": OI["green"]}},
+        decreasing={"marker": {"color": OI["vermillion"]}},
+        totals={"marker": {"color": OI["black"]}}))
+    _style(fig, height=460, ytitle="Account ownership (% adults)")
+    st.plotly_chart(fig, width='stretch')
+    st.info(f"The **{scenario}** {contrib['forecast_total'].iloc[0]:.1f}% forecast is mostly the "
+            "2024 anchor plus **organic drift** — cataloged events add only a few points, because "
+            "their ownership effect is attenuated (α≈0.18). This is the +3pp paradox, made explicit.")
+
+    st.divider()
+    st.subheader("What makes an event impactful? — SHAP on a surrogate model")
+    n_rows = len(ex.build_feature_frame()[0])
+    st.caption(f"A RandomForest predicts each link's effect magnitude (in pp) from its features; "
+               f"SHAP ranks them. Fitted on the {n_rows} percentage-point-denominated links only — "
+               "`count` links express *percent growth*, so mixing them would compare unlike units.")
+    ranked = _shap_importance()
+    imp = ranked.head(10)
+    fig = go.Figure(go.Bar(x=imp["mean_abs_shap"][::-1], y=imp["feature"][::-1],
+                           orientation="h", marker_color=OI["blue"]))
+    _style(fig, height=420, xtitle="mean |SHAP| (impact on predicted magnitude)")
+    st.plotly_chart(fig, width='stretch')
+
+    # Narrative is derived from the ranking, so it cannot drift from the chart above.
+    top = ranked.iloc[0]
+    prov = ranked[ranked["feature"].str.startswith("evidence_basis_")]
+    prov_rank = int(prov.index[0]) + 1
+    st.warning(
+        f"**Concerning pattern surfaced:** the strongest driver is `{top['feature']}` "
+        f"(mean |SHAP| {top['mean_abs_shap']:.2f} pp) — the magnitude an event is credited with "
+        f"depends more on *which pillar and how the number was sourced* than on what the event "
+        f"actually was. `evidence_basis` enters at rank {prov_rank}: provenance predicts size, "
+        "which is a bias signal, not a causal finding.")
+    st.error(
+        f"**Do not over-read this chart.** It is fitted on {n_rows} curated records, so the ranking "
+        "is leverage-sensitive — `pillar_AFFORDABILITY` leads largely because two AFF_DATA_INCOME "
+        "links (+30pp, −20pp) are the most extreme rows in the set. Treat it as a map of where the "
+        "knowledge base is thin, not as evidence about Ethiopian households.")
+
+    with st.expander("⬇ Download the attribution table"):
+        st.download_button("Download attribution (CSV)", da.download_bytes(contrib),
+                           f"ownership_attribution_{scenario}.csv", "text/csv")
+
+
 # =============================================================== MAIN
-def main():
+# Single source of truth for navigation: the sidebar labels and the dispatch are the
+# same mapping, so a page can never be listed without being routed (or vice versa).
+PAGES: Final[dict[str, Callable[[pd.DataFrame], None]]] = {
+    "Overview": page_overview,
+    "Trends": page_trends,
+    "Forecasts": page_forecasts,
+    "Inclusion Projections": page_projections,
+    "Explainability": page_explain,
+}
+
+
+def main() -> None:
     st.sidebar.title("📊 Ethiopia FI")
     st.sidebar.caption("Financial-inclusion data, event impacts & forecasts")
-    page = st.sidebar.radio("Navigate", ["Overview", "Trends", "Forecasts", "Inclusion Projections"])
+    page = st.sidebar.radio("Navigate", list(PAGES))
     st.sidebar.divider()
     st.sidebar.caption("Data: enriched unified dataset (87 records). Engines: src/impact_model.py, "
                        "src/forecast.py. Palette is colorblind-safe.")
     obs = _obs()
 
     st.title("Ethiopia Financial Inclusion Dashboard")
-    {"Overview": page_overview, "Trends": page_trends, "Forecasts": page_forecasts,
-     "Inclusion Projections": page_projections}[page](obs)
+    PAGES[page](obs)
 
 
 if __name__ == "__main__":

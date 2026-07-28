@@ -10,38 +10,42 @@ Design (per the dataviz method):
   * sequential single-hue ramp for the coverage heatmap
   * legend for >=2 series, selective direct labels, recessive grid/axes
 """
+from __future__ import annotations
+
 from pathlib import Path
+from typing import Final
+
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
+from matplotlib.figure import Figure
+from matplotlib.axes import Axes
 from matplotlib.patches import Patch
 import matplotlib.dates as mdates
 
+from src.config import EDA_CFG, FORECAST_CFG, IMPACT_CFG
 from src.load_data import load_all
+from src.utils import PALETTE
 
-ROOT = Path(__file__).resolve().parents[1]
-FIG_DIR = ROOT / "reports" / "figures"
+ROOT: Final[Path] = Path(__file__).resolve().parents[1]
+FIG_DIR: Final[Path] = ROOT / "reports" / "figures"
 
-# --- Okabe-Ito colorblind-safe categorical palette (fixed order) ---
-OI = {
-    "black": "#000000", "orange": "#E69F00", "sky": "#56B4E9", "green": "#009E73",
-    "yellow": "#F0E442", "blue": "#0072B2", "vermillion": "#D55E00", "purple": "#CC79A7",
-}
-CYCLE = [OI["blue"], OI["orange"], OI["green"], OI["vermillion"], OI["purple"],
-         OI["sky"], OI["black"], OI["yellow"]]
-INK = "#1a1a1a"
-MUTED = "#6b6b6b"
-GRID = "#e6e6e6"
+# Okabe-Ito colorblind-safe palette — single source of truth in src/utils.
+OI: Final[dict[str, str]] = PALETTE.as_dict()
+CYCLE: Final[list[str]] = PALETTE.cycle
+INK: Final[str] = PALETTE.ink
+MUTED: Final[str] = PALETTE.muted
+GRID: Final[str] = PALETTE.grid
 
 # category -> color for the event timeline (fixed assignment)
-EVENT_COLORS = {
+EVENT_COLORS: Final[dict[str, str]] = {
     "product_launch": OI["blue"], "market_entry": OI["orange"], "policy": OI["green"],
     "regulation": OI["purple"], "infrastructure": OI["vermillion"],
     "partnership": OI["sky"], "milestone": OI["black"], "pricing": OI["yellow"],
 }
 
 
-def _style():
+def _style() -> None:
     plt.rcParams.update({
         "figure.facecolor": "white", "axes.facecolor": "white",
         "axes.edgecolor": MUTED, "axes.labelcolor": INK, "text.color": INK,
@@ -49,11 +53,16 @@ def _style():
         "grid.color": GRID, "grid.linewidth": 0.8, "axes.axisbelow": True,
         "axes.spines.top": False, "axes.spines.right": False,
         "font.size": 11, "axes.titlesize": 13, "axes.titleweight": "bold",
-        "figure.dpi": 110,
+        "figure.dpi": EDA_CFG.screen_dpi,
     })
 
 
-def _load():
+def _load() -> tuple[dict[str, pd.DataFrame], pd.DataFrame]:
+    """Load the processed dataset and return ``(frames, observations)``.
+
+    The returned observations frame has parsed ``date``/``year``/``value_numeric``
+    columns, so downstream ``fig_*`` functions never re-parse.
+    """
     d = load_all(processed=True)
     obs = d["observations"].copy()
     obs["year"] = pd.to_datetime(obs["observation_date"]).dt.year
@@ -62,19 +71,24 @@ def _load():
     return d, obs
 
 
-def _series(obs, code, gender="all"):
+def _series(obs: pd.DataFrame, code: str, gender: str = "all") -> pd.DataFrame:
+    """One indicator's observations, date-sorted.
+
+    Assumes ``obs`` came from :func:`_load` (columns already parsed); the general
+    parse-and-filter version for un-prepared frames is ``utils.observation_series``.
+    """
     s = obs[(obs.indicator_code == code) & (obs.gender == gender)]
     return s.sort_values("date")
 
 
 # ---------------------------------------------------------------- 1. overview
-def fig_overview(d):
+def fig_overview(d: dict[str, pd.DataFrame]) -> Figure:
     _style()
     u = d["unified"]
     fig, ax = plt.subplots(2, 2, figsize=(11, 7.5))
     fig.suptitle("Dataset overview — composition & quality", fontweight="bold", fontsize=14)
 
-    def barh(a, counts, title, color):
+    def barh(a: Axes, counts: pd.Series, title: str, color: str) -> None:
         counts = counts.sort_values()
         a.barh(counts.index, counts.values, color=color, zorder=3)
         for y, v in enumerate(counts.values):
@@ -93,7 +107,7 @@ def fig_overview(d):
 
 
 # --------------------------------------------------- 2. temporal coverage heatmap
-def fig_coverage(obs):
+def fig_coverage(obs: pd.DataFrame) -> tuple[Figure, pd.DataFrame]:
     _style()
     piv = (obs.assign(one=1)
            .pivot_table(index="indicator_code", columns="year", values="one",
@@ -103,7 +117,7 @@ def fig_coverage(obs):
     data = piv.values.astype(float)
     masked = np.ma.masked_where(data == 0, data)
     cmap = plt.colormaps["Blues"].copy()
-    cmap.set_bad("#f5f5f5")  # empty cells = light gray, not dark
+    cmap.set_bad(EDA_CFG.heatmap_empty_color)  # empty cells = light gray, not dark
     im = ax.imshow(masked, aspect="auto", cmap=cmap, vmin=1, vmax=max(2, data.max()))
     ax.set_xticks(range(len(piv.columns))); ax.set_xticklabels(piv.columns, rotation=45)
     ax.set_yticks(range(len(piv.index))); ax.set_yticklabels(piv.index, fontsize=9)
@@ -120,7 +134,7 @@ def fig_coverage(obs):
 
 
 # ---------------------------------------------------- 3. access trajectory + events
-def fig_access_trajectory(obs, d):
+def fig_access_trajectory(obs: pd.DataFrame, d: dict[str, pd.DataFrame]) -> Figure:
     _style()
     own = _series(obs, "ACC_OWNERSHIP", "all")
     fig, ax = plt.subplots(figsize=(11, 6))
@@ -130,9 +144,10 @@ def fig_access_trajectory(obs, d):
         ax.annotate(f"{r.value_numeric:.0f}%", (r.year, r.value_numeric),
                     textcoords="offset points", xytext=(0, 11), ha="center",
                     fontsize=10, color=INK, fontweight="bold")
-    # NFIS-II 70% target (2025)
-    ax.axhline(70, ls="--", color=MUTED, lw=1.2)
-    ax.text(2014.1, 70.8, "NFIS-II target 70% (2025)", color=MUTED, fontsize=9)
+    # NFIS-II ownership target (2025)
+    target = FORECAST_CFG.nfis_target
+    ax.axhline(target, ls="--", color=MUTED, lw=1.2)
+    ax.text(2014.1, target + 0.8, f"NFIS-II target {target:.0f}% (2025)", color=MUTED, fontsize=9)
 
     events = d["events"].copy()
     events["date"] = pd.to_datetime(events["observation_date"])
@@ -157,7 +172,7 @@ def fig_access_trajectory(obs, d):
 
 
 # ---------------------------------------------------- 4. growth rates per period
-def fig_growth(obs):
+def fig_growth(obs: pd.DataFrame) -> tuple[Figure, pd.DataFrame]:
     _style()
     own = _series(obs, "ACC_OWNERSHIP", "all").reset_index(drop=True)
     rows = []
@@ -184,7 +199,7 @@ def fig_growth(obs):
 
 
 # ---------------------------------------------------- 5. gender gap
-def fig_gender(obs):
+def fig_gender(obs: pd.DataFrame) -> Figure:
     _style()
     fig, ax = plt.subplots(figsize=(9, 5.5))
     years = [2021, 2024]
@@ -209,7 +224,7 @@ def fig_gender(obs):
 
 
 # ---------------------------------------------------- 6. Telebirr adoption + MM ownership
-def fig_usage_growth(obs):
+def fig_usage_growth(obs: pd.DataFrame) -> Figure:
     _style()
     tb = _series(obs, "USG_TELEBIRR_USERS", "all")
     mm = _series(obs, "ACC_MM_ACCOUNT", "all")
@@ -237,9 +252,9 @@ def fig_usage_growth(obs):
 
 
 # ---------------------------------------------------- 7. registered vs active vs owners
-def fig_registered_active(obs):
+def fig_registered_active(obs: pd.DataFrame) -> Figure:
     _style()
-    adults = 70e6  # approx adults 15+ (WB pop ~126M x ~55%); used only for the survey-owner bar
+    adults = EDA_CFG.adult_population
     tb = _series(obs, "USG_TELEBIRR_USERS", "all").value_numeric.max()
     mpesa = _series(obs, "USG_MPESA_USERS", "all").value_numeric.max()
     mpesa_act = _series(obs, "USG_MPESA_ACTIVE", "all").value_numeric.max()
@@ -257,14 +272,14 @@ def fig_registered_active(obs):
     ax.set_ylabel("Accounts / users (millions)")
     ax.set_title("Registered ≠ active ≠ unique owner\nwhy 65M+ registrations translate to few new account-holders")
     ax.grid(axis="x", visible=False); ax.margins(y=0.16)
-    ax.text(0.99, 0.9, "Findex owners estimated as\n9.45% × ~70M adults", transform=ax.transAxes,
-            ha="right", fontsize=8.5, color=MUTED)
+    ax.text(0.99, 0.9, f"Findex owners estimated as\n{mm_own_pct:.2f}% × ~{adults/1e6:.0f}M adults",
+            transform=ax.transAxes, ha="right", fontsize=8.5, color=MUTED)
     fig.tight_layout()
     return fig
 
 
 # ---------------------------------------------------- 8. P2P vs ATM crossover
-def fig_p2p_atm(obs):
+def fig_p2p_atm(obs: pd.DataFrame) -> Figure:
     _style()
     p2p = _series(obs, "USG_P2P_COUNT", "all")
     atm = _series(obs, "USG_ATM_COUNT", "all")
@@ -288,7 +303,7 @@ def fig_p2p_atm(obs):
 
 
 # ---------------------------------------------------- 9. infrastructure / enablers
-def fig_enablers(obs):
+def fig_enablers(obs: pd.DataFrame) -> Figure:
     _style()
     # indexed as % values already; grouped bar of latest value per enabler
     items = [("ACC_4G_COV", "4G coverage"), ("ACC_MOBILE_PEN", "Mobile penetration"),
@@ -314,7 +329,7 @@ def fig_enablers(obs):
 
 
 # ---------------------------------------------------- 10. event timeline
-def fig_timeline(d):
+def fig_timeline(d: dict[str, pd.DataFrame]) -> Figure:
     _style()
     ev = d["events"].copy()
     ev["date"] = pd.to_datetime(ev["observation_date"])
@@ -346,15 +361,16 @@ def fig_timeline(d):
 
 
 # ---------------------------------------------------- 11. impact-link relationship matrix
-def fig_impact_matrix(d):
+def fig_impact_matrix(d: dict[str, pd.DataFrame]) -> Figure:
     _style()
     il = d["impact_links"].merge(
         d["events"][["record_id", "indicator"]].rename(columns={"record_id": "parent_id",
                                                                 "indicator": "event_name"}),
         on="parent_id", how="left")
-    mag = {"high": 3, "medium": 2, "low": 1, "negligible": 0.5}
-    il["m"] = il.impact_magnitude.map(mag) * il.impact_direction.map(
-        {"increase": 1, "decrease": -1, "stabilize": 0, "mixed": 0})
+    # ordinal magnitude x direction sign — both maps live in IMPACT_CFG so this
+    # figure and the impact-model engine can never disagree on the encoding.
+    il["m"] = (il.impact_magnitude.map(IMPACT_CFG.magnitude_ordinal)
+               * il.impact_direction.map(IMPACT_CFG.direction_sign))
     piv = il.pivot_table(index="event_name", columns="related_indicator", values="m",
                          aggfunc="mean")
     fig, ax = plt.subplots(figsize=(12, 7))
@@ -375,7 +391,7 @@ def fig_impact_matrix(d):
     return fig
 
 
-def main():
+def main() -> None:
     FIG_DIR.mkdir(parents=True, exist_ok=True)
     d, obs = _load()
     figs = {
@@ -393,7 +409,7 @@ def main():
     }
     for name, fig in figs.items():
         out = FIG_DIR / f"{name}.png"
-        fig.savefig(out, dpi=150, bbox_inches="tight")
+        fig.savefig(out, dpi=EDA_CFG.figure_dpi, bbox_inches="tight")
         print("saved", out.relative_to(ROOT))
     plt.close("all")
 

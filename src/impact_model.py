@@ -33,31 +33,29 @@ Effects are measured as an INCREMENT relative to the anchor date, so events that
 began before the anchor (already partly realized) are handled correctly and not
 double-counted. The implicit counterfactual is "no further change absent events."
 """
+from __future__ import annotations
+
+from collections.abc import Sequence
 from pathlib import Path
+
 import numpy as np
 import pandas as pd
 
 from src.load_data import load_all
+from src.config import IMPACT_CFG
+from src.utils import half_life_fraction, months_between
 
 ROOT = Path(__file__).resolve().parents[1]
 FIG_DIR = ROOT / "reports" / "figures"
-DAYS_PER_MONTH = 30.44
 
-# qualitative magnitude -> ordinal strength (for the unit-free color scale)
-MAG_ORDINAL = {"high": 3, "medium": 2, "low": 1, "negligible": 0.5}
-# fallback asymptote when impact_estimate is missing (band midpoints); flagged qualitative
-MAG_DEFAULT = {"high": 20.0, "medium": 10.0, "low": 3.0, "negligible": 0.5}
-DIR_SIGN = {"increase": 1, "decrease": -1, "stabilize": 0, "mixed": 0}
-
-ADDITIVE_TYPES = {"percentage", "gap_pp"}                       # estimate in pp
-MULTIPLICATIVE_TYPES = {"count", "currency_etb", "currency_usd", "ratio"}  # estimate in %
-
-# key indicators for the association matrix columns (task-specified + high-value)
-KEY_INDICATORS = [
-    "ACC_OWNERSHIP", "ACC_MM_ACCOUNT", "ACC_4G_COV", "USG_DIGITAL_PAY",
-    "USG_P2P_COUNT", "USG_TELEBIRR_USERS", "USG_MPESA_USERS", "USG_MPESA_ACTIVE",
-    "AFF_DATA_INCOME", "GEN_GAP_ACC", "GEN_MM_SHARE", "DEP_BORROWED",
-]
+# Constants are sourced from the typed config (see src/config.py) and re-exported here
+# so callers/tests can keep importing them by name.
+MAG_ORDINAL = IMPACT_CFG.magnitude_ordinal
+MAG_DEFAULT = IMPACT_CFG.magnitude_default
+DIR_SIGN = IMPACT_CFG.direction_sign
+ADDITIVE_TYPES = set(IMPACT_CFG.additive_types)
+MULTIPLICATIVE_TYPES = set(IMPACT_CFG.multiplicative_types)
+KEY_INDICATORS = list(IMPACT_CFG.key_indicators)
 
 
 # ----------------------------------------------------------------- data assembly
@@ -93,19 +91,14 @@ def get_impact_table() -> pd.DataFrame:
 
 
 # --------------------------------------------------------------- functional form
-def effect_fraction(months_since_event, lag):
-    """Half-life saturating ramp g(Δt) = 1 - 0.5**(Δt/lag), clamped at 0 for Δt<0."""
-    dt = np.asarray(months_since_event, dtype=float)
-    frac = 1.0 - np.power(0.5, np.clip(dt, 0, None) / lag)
-    return np.where(dt < 0, 0.0, frac)
-
-
-def _months_between(t, t0):
-    return (pd.to_datetime(t) - pd.to_datetime(t0)).days / DAYS_PER_MONTH
+# The half-life ramp and month math now live in src/utils (single source of truth);
+# these thin aliases preserve the module's public API.
+effect_fraction = half_life_fraction
+_months_between = months_between
 
 
 # ------------------------------------------------------------ association matrix
-def build_association_matrix(il: pd.DataFrame = None):
+def build_association_matrix(il: pd.DataFrame | None = None) -> tuple[pd.DataFrame, pd.DataFrame]:
     """Return (numeric, ordinal) event x indicator matrices.
 
     numeric: signed asymptotic effect in native units (pp for %, % for counts).
@@ -124,8 +117,10 @@ def build_association_matrix(il: pd.DataFrame = None):
 
 
 # --------------------------------------------------------------------- simulate
-def simulate_indicator(indicator_code, target_dates, anchor_value, anchor_date,
-                       il: pd.DataFrame = None, attenuation: float = 1.0):
+def simulate_indicator(indicator_code: str, target_dates: Sequence[pd.Timestamp],
+                       anchor_value: float, anchor_date: pd.Timestamp,
+                       il: pd.DataFrame | None = None,
+                       attenuation: float = 1.0) -> pd.Series:
     """Predict an indicator's level at `target_dates` from its anchor via events.
 
     attenuation scales all asymptotes for this indicator (empirical shrinkage from
@@ -157,14 +152,14 @@ def simulate_indicator(indicator_code, target_dates, anchor_value, anchor_date,
 
 
 # -------------------------------------------------------------------- validation
-def _series(obs, code):
+def _series(obs: pd.DataFrame, code: str) -> pd.DataFrame:
     s = obs[obs.indicator_code == code].copy()
     s["date"] = pd.to_datetime(s["observation_date"])
     s["value_numeric"] = pd.to_numeric(s["value_numeric"], errors="coerce")
     return s[s.gender == "all"].sort_values("date")
 
 
-def validate(il: pd.DataFrame = None):
+def validate(il: pd.DataFrame | None = None) -> dict:
     """Compare naive predictions vs observed for indicators with >=2 real years.
 
     Returns a dict: indicator -> {anchor, observed(dict), predicted(dict), attenuation}.
@@ -206,7 +201,7 @@ def validate(il: pd.DataFrame = None):
 
 
 # ----------------------------------------------------------------------- figures
-def fig_effect_curves():
+def fig_effect_curves() -> "plt.Figure":
     """Illustrate the half-life ramp for several lags."""
     from src import eda
     import matplotlib.pyplot as plt
@@ -227,7 +222,7 @@ def fig_effect_curves():
     return fig
 
 
-def fig_association_matrix(il: pd.DataFrame = None):
+def fig_association_matrix(il: pd.DataFrame | None = None) -> "plt.Figure":
     """Heatmap: color = signed ordinal band (unit-free), text = numeric estimate.
     Cells from a qualitative band (no numeric estimate) are marked with '*'."""
     from src import eda
@@ -263,7 +258,7 @@ def fig_association_matrix(il: pd.DataFrame = None):
     return fig
 
 
-def fig_validation(il: pd.DataFrame = None):
+def fig_validation(il: pd.DataFrame | None = None) -> "plt.Figure":
     """Predicted (naive & refined) vs observed for the two validated indicators."""
     from src import eda
     import matplotlib.pyplot as plt
@@ -293,7 +288,7 @@ def fig_validation(il: pd.DataFrame = None):
     return fig
 
 
-def save_figures():
+def save_figures() -> None:
     import matplotlib.pyplot as plt
     FIG_DIR.mkdir(parents=True, exist_ok=True)
     il = get_impact_table()
@@ -315,3 +310,5 @@ if __name__ == "__main__":
     print("\n=== Validation ===")
     import json
     print(json.dumps(validate(il), indent=2, default=str))
+    print()
+    save_figures()
